@@ -15,8 +15,11 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
+
+// GCC need it to support std::this_thread::yield ()
+#define _GLIBCXX_USE_SCHED_YIELD 1
+#include <thread>
 
 typedef uint64_t uint_t;
 typedef std::map<uint_t, uint_t> map_t;
@@ -215,19 +218,19 @@ class factorizer_t
    
    struct job_t
    {
-      bool end; // signals the end of jobs
       Job data;
+      bool end; // signals the end of jobs
       job_t () : data (0), end (false) {}
       job_t (const Job & data) : data (data), end (false) {}
       job_t (const bool end) : data (0), end (true) {}
    };
 
    // queue of jobs
-   typedef queue_t<job_t, QueueSize> queue_t;
+   typedef queue_t<job_t, QueueSize> job_queue_t;
 
    // each thread is assigned a queue, and a map to store results
    std::vector<std::thread> threads_;
-   std::unique_ptr<queue_t[]> queues_; // queues are not copyable, so I can't use a vector
+   std::unique_ptr<job_queue_t[]> queues_; // queues are not copyable, so I can't use a vector
    std::vector<map_t> maps_;
 
    // mutex and cv allow main thread to sleep if workers are busy
@@ -279,8 +282,6 @@ class factorizer_t
 	    size_t j = (rand () >> 16) % thread_num_;
 	    const size_t till = j + thread_num_;
 	    for (; j < till && !queues_[j % thread_num_].enqueue (job); ++j);
-
-	    // done or last try?
 	    if (j < till)
 	       break;
 
@@ -331,7 +332,7 @@ class factorizer_t
 public:
    factorizer_t (const size_t thread_num) 
       : thread_num_ (thread_num)
-      , queues_ (new queue_t[thread_num_])
+      , queues_ (new job_queue_t[thread_num_])
       , maps_ (thread_num_)
    {
       srand (static_cast<unsigned int> (time (0)));
@@ -343,7 +344,7 @@ public:
       auto & cv = cv_; // don't want to capture 'this'
 
       // worker routine
-      auto worker = [&cv, &func] (queue_t & q, map_t & m) {
+      auto worker = [&cv, &func] (job_queue_t & q, map_t & m) {
 	 job_t job;
 	 while (!job.end)
 	 {
@@ -495,8 +496,9 @@ single_threaded (map_t & map)
 static void
 modulo (map_t & map, const size_t threads)
 {
+   producer_t input;
    factorizer_t<uint_t, queue_size> fact (threads);
-   fact (map, producer_t (), factorize);
+   fact (map, input, factorize);
 }
 
 // multi-threaded factorization using sieve
@@ -504,9 +506,10 @@ static void
 sieve (map_t & map, const size_t threads)
 {
    const sieve_t sieve;
+   producer_t input;
    sieve_factorize_t<sieve_t> factorize (sieve);
    factorizer_t<uint_t, queue_size> proc (threads);
-   proc (map, producer_t (), factorize);
+   proc (map, input, factorize);
 }
 
 static void
@@ -518,22 +521,6 @@ help ()
       << " modulo - default mode, uses modulo" << std::endl
       << " sieve  - uses sieve (20x speedup for 200 sec to build sieve)" << std::endl
       << " single - single threaded mode using modulo" << std::endl;
-}
-
-static int
-time_ms ()
-{
-   return (int)((float)clock () / (float)CLOCKS_PER_SEC * 1000.0f + 0.5f);
-}
-
-static void
-timer (const char * label = 0)
-{
-   static int last = 0;
-   int cur = time_ms ();
-   if (label)
-      fprintf (stderr, "%s: %d ms\n", label, cur - last);
-   last = cur;
 }
 
 int
