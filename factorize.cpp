@@ -539,20 +539,6 @@ timer (const char * label = 0)
 int
 main (int argc, char *argv[])
 {
-   {
-      timer ();
-      map_t map;
-      std::vector<uint_t> v (10000000, 2);
-      for (auto n: v)
-	 factorize (n, map);
-      timer ("single");
-
-      factorizer_t<uint_t, queue_size> fact (3);
-      fact (map, v, factorize);
-      timer ("no yield");
-      return 0;
-   }
-
    size_t threads = 0;
    if (argc > 2)
       threads = atoi (argv[2]);
