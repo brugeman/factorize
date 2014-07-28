@@ -254,7 +254,7 @@ class factorizer_t
       for (size_t i = 0; i < thread_num_; ++i)
       {
 	 while (!queues_[i].enqueue (job_t (/* end= */true)))
-	    // makes no sense to busy-wait here
+	    // makes no sense to yield here
 	    wait_threads ();
       }
 
@@ -279,22 +279,20 @@ class factorizer_t
 	    size_t j = (rand () >> 16) % thread_num_;
 	    const size_t till = j + thread_num_;
 	    for (; j < till && !queues_[j % thread_num_].enqueue (job); ++j);
+
+	    // done or last try?
 	    if (j < till)
 	       break;
 
-	    // no need to yield on last try
-	    if ((tries + 1) < max_tries)
-	    {
-	       // no empty queues? yield!
-	       std::this_thread::yield ();
-	    }
+	    // no empty queues? yield!
+	    std::this_thread::yield ();
 	 }
 
 	 // done?
 	 if (tries < max_tries)
 	    break;
 
-	 // busy waiting didn't work? sleep!
+	 // yield-waiting didn't work? sleep!
 	 wait_threads ();
       }
    }
@@ -349,7 +347,7 @@ public:
 	 job_t job;
 	 while (!job.end)
 	 {
-	    // busy wait if no job
+	    // wait if no job
 	    while (!q.dequeue (job))
 	    {
 	       // wake him up!
@@ -522,9 +520,39 @@ help ()
       << " single - single threaded mode using modulo" << std::endl;
 }
 
+static int
+time_ms ()
+{
+   return (int)((float)clock () / (float)CLOCKS_PER_SEC * 1000.0f + 0.5f);
+}
+
+static void
+timer (const char * label = 0)
+{
+   static int last = 0;
+   int cur = time_ms ();
+   if (label)
+      fprintf (stderr, "%s: %d ms\n", label, cur - last);
+   last = cur;
+}
+
 int
 main (int argc, char *argv[])
 {
+   {
+      timer ();
+      map_t map;
+      std::vector<uint_t> v (10000000, 2);
+      for (auto n: v)
+	 factorize (n, map);
+      timer ("single");
+
+      factorizer_t<uint_t, queue_size> fact (3);
+      fact (map, v, factorize);
+      timer ("no yield");
+      return 0;
+   }
+
    size_t threads = 0;
    if (argc > 2)
       threads = atoi (argv[2]);
